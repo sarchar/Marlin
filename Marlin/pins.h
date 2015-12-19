@@ -323,7 +323,7 @@
 #define Y_DIR_PIN 22
 #define Y_ENABLE_PIN 24
 #define Y_STOP_PIN 5
-
+ 
 //z axis pins
 #define Z_STEP_PIN 26
 #define Z_DIR_PIN 25
@@ -603,13 +603,15 @@
     #define Y_DIR_PIN          61
     #define Y_ENABLE_PIN       56
     #define Y_MIN_PIN          14
-    #define Y_MAX_PIN          15
+    #define Y_MAX_PIN          -1 // Sarchar - 15
 
     #define Z_STEP_PIN         46
     #define Z_DIR_PIN          48
     #define Z_ENABLE_PIN       62
-    #define Z_MIN_PIN          18
-    #define Z_MAX_PIN          19
+    #define Z_MIN_PIN          15 // Sarchar - 18
+    #define Z_MAX_PIN          -1 // Sarchar - 19
+    
+    #define WIFI_SERIAL        Serial1  // Uses pins 18 and 19
 
     #define Y2_STEP_PIN        36
     #define Y2_DIR_PIN         34

@@ -23,7 +23,7 @@
 #include "pins.h"
 
 #ifndef AT90USB
-#define  HardwareSerial_h // trick to disable the standard HWserial
+//#define  HardwareSerial_h // trick to disable the standard HWserial
 #endif
 
 #if (ARDUINO >= 100)
@@ -42,6 +42,7 @@
 #endif
 
 #include "MarlinSerial.h"
+#include "MarlinWifi.h"
 
 #ifndef cbi
 #define cbi(sfr, bit) (_SFR_BYTE(sfr) &= ~_BV(bit))
@@ -62,12 +63,45 @@
   #define MYSERIAL MSerial
 #endif
 
-#define SERIAL_PROTOCOL(x) (MYSERIAL.print(x))
-#define SERIAL_PROTOCOL_F(x,y) (MYSERIAL.print(x,y))
-#define SERIAL_PROTOCOLPGM(x) (serialprintPGM(PSTR(x)))
-#define SERIAL_PROTOCOLLN(x) (MYSERIAL.print(x),MYSERIAL.write('\n'))
-#define SERIAL_PROTOCOLLNPGM(x) (serialprintPGM(PSTR(x)),MYSERIAL.write('\n'))
+template <typename T> void wifi_serial_print(T const& v)
+{
+#ifdef WIFI_SERIAL
+    WIFI_SERIAL.write(WIFI_COMMAND_MAGIC1);
+    WIFI_SERIAL.write(WIFI_COMMAND_MAGIC2);
+    WIFI_SERIAL.write(WIFI_COMMAND_SERIAL);
+    WIFI_SERIAL.print(v);
+    WIFI_SERIAL.write(0);
+#endif
+}
 
+template <typename T> void wifi_serial_println(T const& v)
+{
+#ifdef WIFI_SERIAL
+    WIFI_SERIAL.write(WIFI_COMMAND_MAGIC1);
+    WIFI_SERIAL.write(WIFI_COMMAND_MAGIC2);
+    WIFI_SERIAL.write(WIFI_COMMAND_SERIAL);
+    WIFI_SERIAL.println(v);
+    WIFI_SERIAL.write(0);
+#endif
+}
+
+template <typename T, typename U> void wifi_serial_print(T const& v, U const& w)
+{
+#ifdef WIFI_SERIAL
+    WIFI_SERIAL.write(WIFI_COMMAND_MAGIC1);
+    WIFI_SERIAL.write(WIFI_COMMAND_MAGIC2);
+    WIFI_SERIAL.write(WIFI_COMMAND_SERIAL);
+    WIFI_SERIAL.print(v, w);
+    WIFI_SERIAL.write(0);
+#endif
+}
+
+
+#define SERIAL_PROTOCOL(x) (MYSERIAL.print(x), wifi_serial_print(x))
+#define SERIAL_PROTOCOL_F(x,y) (MYSERIAL.print(x,y), wifi_serial_print(x,y))
+#define SERIAL_PROTOCOLPGM(x) (serialprintPGM(PSTR(x)))
+#define SERIAL_PROTOCOLLN(x) (MYSERIAL.print(x),MYSERIAL.write('\n'),wifi_serial_println(x))
+#define SERIAL_PROTOCOLLNPGM(x) (serialprintPGM(PSTR(x),true),MYSERIAL.write('\n'))
 
 extern const char errormagic[] PROGMEM;
 extern const char echomagic[] PROGMEM;
@@ -92,14 +126,26 @@ void serial_echopair_P(const char *s_P, unsigned long v);
 
 
 //Things to write to serial from Program memory. Saves 400 to 2k of RAM.
-FORCE_INLINE void serialprintPGM(const char *str)
+FORCE_INLINE void serialprintPGM(const char *str, bool wifi_newline = false)
 {
   char ch=pgm_read_byte(str);
+#ifdef WIFI_SERIAL
+  WIFI_SERIAL.write(WIFI_COMMAND_MAGIC1);
+  WIFI_SERIAL.write(WIFI_COMMAND_MAGIC2);
+  WIFI_SERIAL.write(WIFI_COMMAND_SERIAL);
+#endif
   while(ch)
   {
     MYSERIAL.write(ch);
+#ifdef WIFI_SERIAL
+    WIFI_SERIAL.write(ch);
+#endif
     ch=pgm_read_byte(++str);
   }
+#ifdef WIFI_SERIAL
+  if(wifi_newline) WIFI_SERIAL.write('\n');
+  WIFI_SERIAL.write(0);
+#endif
 }
 
 

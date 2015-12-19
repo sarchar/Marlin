@@ -366,6 +366,10 @@ static int buflen = 0;
 //static int i = 0;
 static char serial_char;
 static int serial_count = 0;
+#ifdef WIFI_SERIAL
+static bool serial_from_wifi = 0;
+static bool serial_reading = 0;
+#endif
 static boolean comment_mode = false;
 static char *strchr_pointer; // just a pointer to find chars in the command string like X, Y, Z, E, etc
 
@@ -406,6 +410,7 @@ boolean chdkActive = false;
 
 void get_arc_coordinates();
 bool setTargetedHotend(int code);
+void wifi_update();
 
 void serial_echopair_P(const char *s_P, float v)
     { serialprintPGM(s_P); SERIAL_ECHO(v); }
@@ -559,6 +564,9 @@ void setup()
   setup_killpin();
   setup_powerhold();
   MYSERIAL.begin(BAUDRATE);
+#ifdef WIFI_SERIAL
+  WIFI_SERIAL.begin(WIFI_SERIAL_BAUDRATE);
+#endif
   SERIAL_PROTOCOLLNPGM("start");
   SERIAL_ECHO_START;
 
@@ -668,12 +676,109 @@ void loop()
   manage_inactivity();
   checkHitEndstops();
   lcd_update();
+  wifi_update();
+}
+
+uint32_t wifi_status_next_update_millis = 0;
+
+void wifi_update()
+{
+#ifdef WIFI_SERIAL
+    char buf[4];
+
+    if(wifi_status_next_update_millis < millis()) {
+        WIFI_SERIAL.write(WIFI_COMMAND_MAGIC1);
+        WIFI_SERIAL.write(WIFI_COMMAND_MAGIC2);
+
+        WIFI_SERIAL.write(WIFI_COMMAND_STATUS);
+
+        // current status
+        if (movesplanned() || IS_SD_PRINTING) {
+            WIFI_SERIAL.write(WIFI_COMMAND_STATUS_PRINTING);
+        } else if(Stopped) {
+            WIFI_SERIAL.write(WIFI_COMMAND_STATUS_ERROR);
+        } else {
+            WIFI_SERIAL.write(WIFI_COMMAND_STATUS_IDLE);
+        }
+
+        // send the time since starting (in seconds)
+        uint32_t duration = (uint32_t)((millis() - starttime) / 1000);
+        memcpy(buf, &duration, sizeof(uint32_t));
+        WIFI_SERIAL.write(buf, 4);
+
+        // and the % of printer complete
+#ifdef SDSUPPORT
+        WIFI_SERIAL.write((uint8_t)card.percentDone());
+#else
+        WIFI_SERIAL.write((uint8_t)0);
+#endif
+
+        memcpy(buf, &(current_position[X_AXIS]), sizeof(float));
+        WIFI_SERIAL.write(buf, sizeof(uint32_t));
+        memcpy(buf, &(current_position[Y_AXIS]), sizeof(float));
+        WIFI_SERIAL.write(buf, sizeof(uint32_t));
+        memcpy(buf, &(current_position[Z_AXIS]), sizeof(float));
+        WIFI_SERIAL.write(buf, sizeof(uint32_t));
+        memcpy(buf, &(current_position[E_AXIS]), sizeof(float));
+        WIFI_SERIAL.write(buf, sizeof(uint32_t));
+
+        wifi_status_next_update_millis = millis() + 500;
+    }
+#endif
 }
 
 void get_command()
 {
-  while( MYSERIAL.available() > 0  && buflen < BUFSIZE) {
+  // If we're in progress reading MYSERIAL, then don't interrupt that just because WiFi has data available
+  // Similarly, if we're in progress reading WIFI_SERIAL, don't interrupt that just because MYSERIAL has data available
+  // If neither are active, and one becomes active, switch to reading that one.
+#ifdef WIFI_SERIAL
+  if( serial_reading == 0 ) {
+    if( MYSERIAL.available() > 0 ) {
+        serial_from_wifi = 0;
+        serial_reading = 1;
+    } else if( WIFI_SERIAL.available() > 3 ) { 
+        uint8_t magic1 = WIFI_SERIAL.read();
+        uint8_t magic2 = WIFI_SERIAL.read();
+        if(magic1 == WIFI_COMMAND_MAGIC1 && magic2 == WIFI_COMMAND_MAGIC2) {
+            uint8_t command = WIFI_SERIAL.read();
+            switch(command) {
+            case WIFI_COMMAND_SERIAL:
+                MYSERIAL.println("starting read from WiFi");
+                serial_from_wifi = 1;
+                serial_reading = 1;
+                break;
+            }
+        }
+    }
+  }
+
+  bool serial_available = serial_reading && ((serial_from_wifi && WIFI_SERIAL.available()) || (!serial_from_wifi && MYSERIAL.available()));
+#endif
+
+  while( buflen < BUFSIZE 
+#ifdef WIFI_SERIAL
+  && serial_available
+#else
+  && MYSERIAL.available() > 0
+#endif
+  ) {
+#ifdef WIFI_SERIAL
+    if(serial_from_wifi) {
+        serial_char = WIFI_SERIAL.read();
+        MYSERIAL.write(serial_char);
+        // If this is the termination character \0 from WIFI, then we don't do anything - we only execute commands after \n
+        if(serial_from_wifi && serial_char == '\0') {
+            serial_reading = 0;
+            return;
+        }
+    } else {
+        serial_char = MYSERIAL.read();
+    }
+    serial_available = ((serial_from_wifi && WIFI_SERIAL.available()) || (!serial_from_wifi && MYSERIAL.available()));
+#else
     serial_char = MYSERIAL.read();
+#endif
     if(serial_char == '\n' ||
        serial_char == '\r' ||
        (serial_char == ':' && comment_mode == false) ||
@@ -3915,6 +4020,9 @@ void FlushSerialRequestResend()
 {
   //char cmdbuffer[bufindr][100]="Resend:";
   MYSERIAL.flush();
+#ifdef WIFI_SERIAL
+  WIFI_SERIAL.flush();
+#endif
   SERIAL_PROTOCOLPGM(MSG_RESEND);
   SERIAL_PROTOCOLLN(gcode_LastN + 1);
   ClearToSend();
